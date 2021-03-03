@@ -22,7 +22,7 @@ Route::middleware('auth:api')->get('/user', function (Request $request) {
 function createOrderSumQuery(Datetime $day, string $company_id) {
 
     $data = DB::table('orders')
-                ->select(DB::raw("SUM(orders.value) as value"), DB::raw("COUNT(orders.id) as count"), DB::raw("DATE(orders.created_at) as label"))
+                ->select(DB::raw("SUM(orders.value) as value"), DB::raw("COUNT(orders.id) as count"), DB::raw("UNIX_TIMESTAMP(DATE(orders.created_at)) as label"))
                 ->where('company_id', '=', $company_id)
                 ->whereDate('created_at', '=', $day->format('Y-m-d'))
                 ->groupBy('label')
