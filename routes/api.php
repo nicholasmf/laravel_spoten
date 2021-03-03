@@ -66,10 +66,10 @@ function createOrderString(DateTime $start, DateTime $end, string $company_id, s
             $label = 'UNIX_TIMESTAMP(DATE(created_at))';
         } break;
         case 'week': {
-            $label = 'YEARWEEK(created_at)';
+            $label = 'UNIX_TIMESTAMP(SUBDATE(DATE(created_at), DAYOFWEEK(created_at) - 1))';
         } break;
         case 'month': {
-            $label = 'MONTH(created_at)';
+            $label = 'UNIX_TIMESTAMP(SUBDATE(DATE(created_at), DAYOFMONTH(created_at) - 1))';
         } break;
         case 'week-weekend': {
             $label = 'IF (DAYOFWEEK(created_at) = 1 OR DAYOFWEEK(created_at) = 7, \'weekend\', \'weekday\')';
@@ -78,7 +78,7 @@ function createOrderString(DateTime $start, DateTime $end, string $company_id, s
             $label = 'TIME_FORMAT(orders.created_at, \'%p\')';
         } break;
         default: {
-            $label = 'DATE(created_at)';
+            $label = 'UNIX_TIMESTAMP(DATE(created_at))';
         }
     }
 
