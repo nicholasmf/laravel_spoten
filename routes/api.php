@@ -57,6 +57,32 @@ Route::get('/day-report', function(Request $request) {
     ]);
 });
 
+function getLabelByTimeframe(string $timeframe){
+    switch($timeframe) {
+        case 'day': {
+            $label = 'UNIX_TIMESTAMP(DATE(created_at))';
+        } break;
+        case 'week': {
+            $label = 'UNIX_TIMESTAMP(SUBDATE(DATE(created_at), DAYOFWEEK(created_at) - 1))';
+        } break;
+        case 'month': {
+            $label = 'UNIX_TIMESTAMP(SUBDATE(DATE(created_at), DAYOFMONTH(created_at) - 1))';
+        } break;
+        case 'week-weekend': {
+            $label = 'IF (DAYOFWEEK(created_at) = 1 OR DAYOFWEEK(created_at) = 7, \'weekend\', \'weekday\')';
+        } break;
+        case 'am-pm': {
+            $label = 'TIME_FORMAT(orders.created_at, \'%p\')';
+        } break;
+        default: {
+            $label = 'UNIX_TIMESTAMP(DATE(created_at))';
+        }
+    }
+
+    return $label;
+}
+
+
 function createOrderString(DateTime $start, DateTime $end, string $company_id, string $metric, string $timeframe) {
     $label = '';
     $value = '';
@@ -172,6 +198,39 @@ Route::get('/n-orders', function(Request $request) {
     return json_encode((object) [
         "period" => $query,
         "previousPeriod" => $previousPeriodQuery
+    ]);
+});
+
+function createNewCustomersQuery(Datetime $start, Datetime $end, string $company_id, string $timeframe) {
+    $data = DB::table('vouchers')
+        ->select('vouchers.user_id', DB::raw("MIN(orders.created_at) as firstOrder"))
+        ->join('orders', function ($join) use ($company_id) {
+            $join->on('orders.voucher_id', '=', 'vouchers.id')
+                ->where('orders.company_id', '=', $company_id);
+        })
+        ->groupBy('vouchers.user_id')
+        ->havingBetween('firstOrder', [$start->format('Y-m-d'), $end->format('Y-m-d')])
+        ->get();
+
+    return $data;
+}
+
+Route::get('/new-customers', function(Request $request) {
+    $timeframe = $request->input("timeframe");
+    $company_id = $request->input("company_id");
+    $filterStart = $request->input("filterStart");
+    $filterEnd = $request->input("filterEnd");
+
+    $start = $filterStart ? new DateTime($filterStart) : new DateTime('2021-01-10');
+    $end = $filterEnd ? new DateTime($filterEnd) : new DateTime('2021-01-16');
+    $diff = $end->diff($start);
+    $previousPeriodStart = (clone $start)->sub(new DateInterval("P".($diff->d + 1)."D"));
+    $previousPeriodEnd = (clone $start)->sub(new DateInterval('P1D'));
+
+    $query = createNewCustomersQuery($start, $end, $company_id, $timeframe);
+
+    return json_encode((object) [
+        "period" => $query,
     ]);
 });
 
