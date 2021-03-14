@@ -83,11 +83,14 @@ function getLabelByTimeframe(string $timeframe){
 }
 
 
-function createOrderString(DateTime $start, DateTime $end, string $company_id, string $metric, string $timeframe) {
+function createOrderString(DateTime $start, DateTime $end, string $company_id, string $metric, $unit) {
     $label = '';
     $value = '';
 
-    switch($timeframe) {
+    switch($unit) {
+        case 'hour': {
+            $label = 'FLOOR(UNIX_TIMESTAMP(DATE_FORMAT(orders.created_at, "%Y-%m-%d %H:00:00")))';
+        } break;
         case 'day': {
             $label = 'UNIX_TIMESTAMP(DATE(created_at))';
         } break;
@@ -96,6 +99,9 @@ function createOrderString(DateTime $start, DateTime $end, string $company_id, s
         } break;
         case 'month': {
             $label = 'UNIX_TIMESTAMP(SUBDATE(DATE(created_at), DAYOFMONTH(created_at) - 1))';
+        } break;
+        case 'year': {
+            $label = 'UNIX_TIMESTAMP(SUBDATE(DATE(created_at), DAYOFWEEK(created_at) - 1))';
         } break;
         case 'week-weekend': {
             $label = 'IF (DAYOFWEEK(created_at) = 1 OR DAYOFWEEK(created_at) = 7, \'weekend\', \'weekday\')';
@@ -149,6 +155,83 @@ function createOrderString(DateTime $start, DateTime $end, string $company_id, s
     return $data;
 }
 
+function calcStartEndByTimeframe($timeframe) {
+    $start = new DateTime();
+    $end = new DateTime();
+
+    switch ($timeframe) {
+        case 'day': {
+            $start = new DateTime('today');
+        } break;
+        case 'yesterday': {
+            $start = new DateTime('yesterday');
+            $end = new DateTime('today');
+            $end = $end->sub(new DateInterval("PT1S"));
+        } break;
+        case 'week': {
+            $start = $start->sub(new DateInterval("P7D"));
+        } break;
+        case 'month': {
+            $start = $start->sub(new DateInterval("P1M"));
+        } break;
+        case 'wtd': {
+            $start = new DateTime('Sunday this week');
+        } break;
+        case 'mtd': {
+            $start = new DateTime('first day of this month');
+        } break;
+        case 'ytd': {
+            $start = new DateTime('first day of January');
+        } break;
+        default: {
+            throw new Error("invalid timeframe");
+        }
+    }
+    
+    return [
+        "start" => $start,
+        "end" => $end,
+    ];
+}
+
+function calcUnitByDiff($diff) {
+    if ($diff < 14) {
+        return "day";
+    } else if ($diff >= 365) {
+        return "year";
+    } else if ($diff >= 30) {
+        return "month";
+    } else if ($diff >= 14) {
+        return "week";
+    }
+}
+
+Route::get('/testing', function(Request $request) {
+    $timeframe = $request->input("timeframe");
+
+    $startEnd = calcStartEndByTimeframe($timeframe);
+    $start = $startEnd["start"];
+    $end = $startEnd["end"];
+
+    $previousPeriodStart = (clone $start)->sub(new DateInterval('P1W'));
+    $previousPeriodEnd = (clone $end)->sub(new DateInterval('P1W'));
+
+    $diff = $end->diff($start)->days + 1;
+    $unit = calcUnitByDiff($diff);
+
+    $sunday = new DateTime("Sunday this week");
+
+    return json_encode((object) [
+        "start" => $start->format('Y-m-d H-i-s'),
+        "end" => $end->format('Y-m-d H-i-s'),
+        "prevStart" => $previousPeriodStart,
+        "prevEnd" => $previousPeriodEnd,
+        "diff" => $diff,
+        "unit" => $unit,
+        "sunday" => $sunday,
+    ]);
+});
+
 Route::get('/n-orders', function(Request $request) {
     if (!$request->has("company_id")) {
         return 'no-company-id';
@@ -160,34 +243,53 @@ Route::get('/n-orders', function(Request $request) {
     $filterStart = $request->input("filterStart");
     $filterEnd = $request->input("filterEnd");
 
-    $start = $filterStart ? new DateTime($filterStart) : new DateTime('2021-01-10');
-    $end = $filterEnd ? new DateTime($filterEnd) : new DateTime('2021-01-16');
-    $diff = $end->diff($start);
-    $previousPeriodStart = (clone $start)->sub(new DateInterval("P".($diff->d + 1)."D"));
+    if ($request->has("timeframe")) {
+        $startEnd = calcStartEndByTimeframe($timeframe);
+        $start = $startEnd["start"];
+        $end = $startEnd["end"];
+    } else {
+        if ($request->has("filterStart")) {
+            $start = new DateTime($filterStart);
+        } else {
+            $start = new DateTime('today');
+        }
+
+        if ($request->has("filterEnd")) {
+            $end = new DateTime($filterEnd);
+        } else {
+            $end = new DateTime();
+        }
+    }
+
+    $diff = $end->diff($start)->days + 1;
+    $previousPeriodStart = (clone $start)->sub(new DateInterval("P".($diff)."D"));
     $previousPeriodEnd = (clone $start)->sub(new DateInterval('P1D'));
 
-    // TODO check month limits (first day / last day)
-    if ($timeframe == 'mtd') {
-        $start = new DateTime('first day of this month');
-        $end = new DateTime();
+    if (!$request->has("unit")) {
+        $unit = calcUnitByDiff($diff);
+    } else {
+        $unit = $request->input("unit");
+    }
 
+    if ($timeframe == 'wtd') {
+        $previousPeriodStart = (clone $start)->sub(new DateInterval('P1W'));
+        $previousPeriodEnd = (clone $end)->sub(new DateInterval('P1W'));
+
+        $unit = 'day';
+    } else if ($timeframe == 'mtd') {
         $previousPeriodStart = (clone $start)->sub(new DateInterval('P1M'));
         $previousPeriodEnd = (clone $end)->sub(new DateInterval('P1M'));
 
-        $timeframe = 'day';
-    // TODO review ytd
-    } else if ($timeframe === 'ytd') {
-        $start = new DateTime('first day of January');
-        $end = new DateTime();
-    
+        $unit = 'day';
+    } else if ($timeframe === 'ytd') {    
         $previousPeriodStart = (clone $start)->sub(new DateInterval('P1Y'));
         $previousPeriodEnd = (clone $end)->sub(new DateInterval('P1Y'));
 
-        $timeframe = 'week';
+        $unit = 'week';
     }
 
-    $query = createOrderString($start, $end, $company_id, $metric, $timeframe);
-    $previousPeriodQuery = createOrderString($previousPeriodStart, $previousPeriodEnd, $company_id, $metric, $timeframe);
+    $query = createOrderString($start, $end, $company_id, $metric, $unit);
+    $previousPeriodQuery = createOrderString($previousPeriodStart, $previousPeriodEnd, $company_id, $metric, $unit);
 
     $previousPeriodQuery->each(function ($item, $key) use ($query) {
         if (isset($query[$key])) {
