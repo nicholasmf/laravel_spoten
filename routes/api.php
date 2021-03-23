@@ -122,10 +122,10 @@ function createOrderString(DateTime $start, DateTime $end, string $company_id, s
             $value = 'IFNULL(SUM(orders.value), 0.0)';
         } break;
         case 'n-orders-cumulative': {
-            $value = 'SUM(IFNULL(COUNT(orders.id), 0)) OVER(order by DATE(created_at))';
+            $value = "SUM(IFNULL(COUNT(orders.id), 0)) OVER(order by {$label})";
         } break;
         case 'rs-orders-cumulative': {
-            $value = 'SUM(IFNULL(SUM(orders.value), 0.0)) OVER(order by DATE(created_at))';
+            $value = "SUM(IFNULL(SUM(orders.value), 0.0)) OVER(order by {$label})";
         } break;
         default: {
             $value = 'IFNULL(COUNT(orders.id), 0)';
